@@ -9,15 +9,19 @@ import site
 import glob
 from datetime import timedelta
 import math
+import moviepy.editor as mp
 from pydub import AudioSegment
 import speech_recognition as sr
+from pydub.silence import detect_nonsilent
+import langdetect
+import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def setup_environment():
     """Set up the Python environment."""
-    pass  # No specific setup needed for this version  To install Requirement  pip install -r requirements.txt
+    pass  # No specific setup needed for this version
 
 def run_pip_command(cmd, desc):
     logging.info(f"{desc}...")
@@ -119,34 +123,53 @@ def split_audio(audio_path, chunk_duration=30):
 
     return chunks
 
-def transcribe_audio_chunk(recognizer, chunk_path, language="en-US"):
-    """Transcribe a single audio chunk with retry logic"""
-    max_retries = 3
-    retry_delay = 5
-    chunk_name = os.path.basename(chunk_path)
+def detect_sentences(audio_segment, min_silence_len=500, silence_thresh=-40):
+    """Detect sentence boundaries using silence detection"""
+    # Get non-silent chunks
+    nonsilent_chunks = detect_nonsilent(
+        audio_segment,
+        min_silence_len=min_silence_len,
+        silence_thresh=silence_thresh
+    )
 
-    for attempt in range(max_retries):
-        try:
-            with sr.AudioFile(chunk_path) as source:
-                audio = recognizer.record(source)
-                result = recognizer.recognize_google(
-                    audio,
-                    language=language,
-                    show_all=False  # Changed to False to get direct transcript
-                )
-                logging.info(f"Successfully transcribed {chunk_name}")
-                return result  # Returns the text directly
-        except sr.UnknownValueError:
-            logging.warning(f"Chunk {chunk_name}: Speech not recognized")
-            return ""
-        except Exception as e:
-            if attempt < max_retries - 1:
-                logging.warning(f"Chunk {chunk_name}: Attempt {attempt + 1} failed ({str(e)}), retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
-                retry_delay *= 2
-            else:
-                logging.error(f"Chunk {chunk_name}: Failed after {max_retries} attempts: {str(e)}")
-                return ""
+    # Convert chunks to time ranges
+    sentences = []
+    for start, end in nonsilent_chunks:
+        # Convert milliseconds to seconds
+        sentences.append({
+            'start': start / 1000.0,
+            'end': end / 1000.0,
+            'duration': (end - start) / 1000.0
+        })
+
+    return sentences
+
+def transcribe_audio_chunk(recognizer, audio_segment, language=None):
+    """Transcribe an audio segment with automatic language detection"""
+    try:
+        # Convert audio segment to raw data
+        audio_data = audio_segment.raw_data
+        # Create AudioData object
+        audio = sr.AudioData(
+            audio_data,
+            audio_segment.frame_rate,
+            audio_segment.sample_width
+        )
+
+        # Get transcription
+        text = recognizer.recognize_google(audio, language=language)
+
+        # Detect language if not specified
+        if not language:
+            try:
+                language = langdetect.detect(text)
+            except:
+                language = 'en'
+
+        return text.strip(), language
+    except Exception as e:
+        logging.error(f"Transcription error: {str(e)}")
+        return "", language
 
 def merge_transcriptions(chunk_results, language):
     """Merge transcription chunks into a single result"""
@@ -172,98 +195,108 @@ def merge_transcriptions(chunk_results, language):
 
 def extract_transcript(video_path, output_dir):
     try:
-        # Create output directory
         output_dir = Path(output_dir)
         output_dir.mkdir(exist_ok=True)
 
-        # Extract audio
-        logging.info(f"Extracting audio from video: {video_path}")
-        import moviepy.editor as mp
-        clip = mp.VideoFileClip(str(video_path))
-        audio_path = output_dir / f"{Path(video_path).stem}_audio.wav"
-        clip.audio.write_audiofile(str(audio_path), codec='pcm_s16le', ffmpeg_params=['-ac', '2', '-ar', '44100'])
-        clip.close()
+        # Load video
+        logging.info(f"Processing video: {video_path}")
+        video = mp.VideoFileClip(str(video_path))
 
-        # Split audio into chunks
-        logging.info("Splitting audio into chunks...")
-        chunks = split_audio(str(audio_path))
+        # Extract audio to temporary WAV file
+        logging.info("Extracting audio...")
+        temp_audio_path = output_dir / f"temp_{Path(video_path).stem}.wav"
+        video.audio.write_audiofile(
+            str(temp_audio_path),
+            fps=44100,
+            nbytes=2,
+            codec='pcm_s16le',
+            ffmpeg_params=["-ac", "1"]  # Force mono audio
+        )
+        video.close()
 
-        # Initialize speech recognizer
-        import speech_recognition as sr
+        # Load the audio file with pydub
+        audio_segment = AudioSegment.from_wav(str(temp_audio_path))
+
+        # Initialize recognizer
         r = sr.Recognizer()
+        r.energy_threshold = 300
+        r.dynamic_energy_threshold = True
 
-        # Process chunks for English
-        logging.info(f"Transcribing {len(chunks)} chunks to English...")
-        en_results = []
-        for i, chunk_path in enumerate(chunks, 1):
-            logging.info(f"Processing English chunk {i}/{len(chunks)}")
-            result = transcribe_audio_chunk(r, chunk_path, "en-US")
-            en_results.append(result)
-            time.sleep(2)  # Increased rate limiting
+        # First detect language using a small sample
+        detected_language = 'en-US'  # Default to English
+        try:
+            sample_duration = min(10000, len(audio_segment))  # Use first 10 seconds or full audio
+            sample = audio_segment[:sample_duration]
+            sample_path = output_dir / "temp_sample.wav"
+            sample.export(str(sample_path), format="wav")
 
-        # Process chunks for Arabic
-        logging.info(f"Transcribing {len(chunks)} chunks to Arabic...")
-        ar_results = []
-        for i, chunk_path in enumerate(chunks, 1):
-            logging.info(f"Processing Arabic chunk {i}/{len(chunks)}")
-            result = transcribe_audio_chunk(r, chunk_path, "ar-AR")
-            ar_results.append(result)
-            time.sleep(2)  # Increased rate limiting
+            with sr.AudioFile(str(sample_path)) as source:
+                audio = r.record(source)
+                sample_text = r.recognize_google(audio)
+                detected_language = langdetect.detect(sample_text)
+                if detected_language.startswith('en'):
+                    detected_language = 'en-US'
+                elif detected_language.startswith('ar'):
+                    detected_language = 'ar-AR'
+                logging.info(f"Detected language: {detected_language}")
 
-        # Merge results with debug logging
-        logging.info("Merging English transcription chunks...")
-        result_en = merge_transcriptions(en_results, "en-US")
-        logging.debug(f"English merge result: {result_en}")
+            sample_path.unlink(missing_ok=True)
+        except Exception as e:
+            logging.warning(f"Language detection failed: {str(e)}. Using default: en-US")
 
-        logging.info("Merging Arabic transcription chunks...")
-        result_ar = merge_transcriptions(ar_results, "ar-AR")
-        logging.debug(f"Arabic merge result: {result_ar}")
+        # Process audio in chunks
+        chunk_duration = 10000  # 10 seconds
+        transcription = []
 
-        # Save transcripts with timestamps
-        success = False
-        if result_en and result_en['result']:
-            en_srt_path = output_dir / f"{Path(video_path).stem}_en.srt"
-            with open(en_srt_path, 'w', encoding='utf-8') as f:
-                f.write(create_srt_content(result_en['result']))
+        for i, start in enumerate(range(0, len(audio_segment), chunk_duration)):
+            end = start + chunk_duration
+            chunk = audio_segment[start:end]
 
-            # Also save plain text version
-            en_txt_path = output_dir / f"{Path(video_path).stem}_en.txt"
-            with open(en_txt_path, 'w', encoding='utf-8') as f:
-                f.write(' '.join(r['text'] for r in result_en['result']))
+            # Export chunk
+            chunk_path = output_dir / f"temp_chunk_{i}.wav"
+            chunk.export(str(chunk_path), format="wav")
 
-            logging.info(f"Saved English transcripts to {en_srt_path} and {en_txt_path}")
-            success = True
-
-        if result_ar and result_ar['result']:
-            ar_srt_path = output_dir / f"{Path(video_path).stem}_ar.srt"
-            with open(ar_srt_path, 'w', encoding='utf-8') as f:
-                f.write(create_srt_content(result_ar['result']))
-
-            # Also save plain text version
-            ar_txt_path = output_dir / f"{Path(video_path).stem}_ar.txt"
-            with open(ar_txt_path, 'w', encoding='utf-8') as f:
-                f.write(' '.join(r['text'] for r in result_ar['result']))
-
-            logging.info(f"Saved Arabic transcripts to {ar_srt_path} and {ar_txt_path}")
-            success = True
-
-        # Clean up temporary files
-        os.remove(audio_path)
-        for chunk in chunks:
             try:
-                os.remove(chunk)
-            except:
-                pass
+                with sr.AudioFile(str(chunk_path)) as source:
+                    audio = r.record(source)
+                    text = r.recognize_google(audio, language=detected_language)
+                    if text:
+                        transcription.append({
+                            'index': len(transcription) + 1,
+                            'start': start / 1000.0,  # Convert to seconds
+                            'end': end / 1000.0,
+                            'text': text.strip()
+                        })
+                        logging.info(f"Transcribed chunk {i+1}: {text[:50]}...")
+            except Exception as e:
+                logging.warning(f"Failed to transcribe chunk {i+1}: {str(e)}")
+            finally:
+                chunk_path.unlink(missing_ok=True)
 
-        if success:
-            logging.info(f"Transcripts saved to: {output_dir}")
+            time.sleep(0.5)  # Rate limiting
+
+        # Clean up
+        temp_audio_path.unlink(missing_ok=True)
+
+        # Save transcription
+        if transcription:
+            srt_path = output_dir / f"{Path(video_path).stem}.srt"
+            with open(srt_path, 'w', encoding='utf-8') as f:
+                for segment in transcription:
+                    f.write(f"{segment['index']}\n")
+                    f.write(f"{format_timestamp(segment['start'])} --> {format_timestamp(segment['end'])}\n")
+                    f.write(f"{segment['text']}\n\n")
+
+            logging.info(f"Saved transcript to {srt_path}")
             return True
-        else:
-            logging.error("No valid transcriptions generated")
-            return False
+
+        logging.warning("No transcription segments were generated")
+        return False
 
     except Exception as e:
         logging.error(f"Error during transcript extraction: {str(e)}")
+        import traceback
+        logging.error(traceback.format_exc())
         return False
 
 def process_directory(directory_path):
@@ -294,7 +327,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Get directory path
-    default_dir = r"D:\VIDSCRIBE"
+    default_dir = r"D:\transcript\Text-from-Video"
     while True:
         dir_path = input(f"Enter directory path (press Enter to use default: {default_dir}): ").strip()
         if not dir_path:
