@@ -3,5 +3,6 @@ decorator==5.1.1
 imageio==2.31.1
 imageio-ffmpeg==0.4.8
 moviepy==1.0.3
-SpeechRecognition==3.10.0
 pydub==0.25.1
+SpeechRecognition==3.10.0
+langdetect==1.0.9

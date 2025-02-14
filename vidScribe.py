@@ -23,6 +23,9 @@ def setup_environment():
     """Set up the Python environment."""
     pass  # No specific setup needed for this version
 
+# pip install -r requirements.txt  # Install required packages
+# python vidScribe.py  # Run the script
+
 def run_pip_command(cmd, desc):
     logging.info(f"{desc}...")
     try:
