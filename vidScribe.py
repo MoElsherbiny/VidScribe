@@ -19,12 +19,73 @@ import numpy as np
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+def create_venv(venv_path):
+    """Create a virtual environment if it doesn't exist."""
+    if not os.path.exists(venv_path):
+        logging.info("Creating virtual environment...")
+        venv.create(venv_path, with_pip=True)
+        return True
+    logging.info("Virtual environment already exists")
+    return True
+
+def get_venv_python():
+    """Get the path to the virtual environment Python executable."""
+    if sys.platform == "win32":
+        return os.path.join("venv", "Scripts", "python.exe")
+    return os.path.join("venv", "bin", "python")
+
+def activate_venv():
+    """Activate the virtual environment."""
+    venv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv")
+
+    if sys.platform == "win32":
+        activate_script = os.path.join(venv_path, "Scripts", "activate_this.py")
+    else:
+        activate_script = os.path.join(venv_path, "bin", "activate_this.py")
+
+    if os.path.exists(activate_script):
+        with open(activate_script) as f:
+            exec(f.read(), {'__file__': activate_script})
+
+    # Add site-packages to path
+    site_packages = os.path.join(venv_path, "Lib", "site-packages")
+    if os.path.exists(site_packages) and site_packages not in sys.path:
+        sys.path.insert(0, site_packages)
+
 def setup_environment():
     """Set up the Python environment."""
-    pass  # No specific setup needed for this version
+    venv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv")
 
-# pip install -r requirements.txt  # Install required packages
-# python vidScribe.py  # Run the script
+    # Remove existing venv if it exists
+    if os.path.exists(venv_path):
+        import shutil
+        shutil.rmtree(venv_path)
+        logging.info("Removed existing virtual environment")
+
+    # Create new virtual environment
+    logging.info("Creating virtual environment...")
+    venv.create(venv_path, with_pip=True)
+
+    # Activate virtual environment
+    activate_venv()
+
+    # Upgrade pip first
+    logging.info("Upgrading pip...")
+    subprocess.run([get_venv_python(), "-m", "pip", "install", "--upgrade", "pip"], check=True)
+
+    # Install requirements
+    requirements_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
+    if os.path.exists(requirements_path):
+        logging.info("Installing requirements...")
+        try:
+            subprocess.run([get_venv_python(), "-m", "pip", "install", "-r", requirements_path], check=True)
+            logging.info("Requirements installed successfully")
+            return True
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Failed to install requirements: {e}")
+            return False
+
+    return True
 
 def run_pip_command(cmd, desc):
     logging.info(f"{desc}...")
@@ -61,43 +122,22 @@ def create_srt_content(segments):
     return srt_content
 
 def verify_installation():
-    setup_environment()
-
-    if not run_pip_command(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "pip"],
-        "Upgrading pip"
-    ):
-        logging.warning("Pip upgrade failed, continuing with existing version")
-
-    if not run_pip_command(
-        [sys.executable, "-m", "pip", "install", "setuptools", "wheel"],
-        "Installing setuptools and wheel"
-    ):
-        logging.error("Failed to install setuptools and wheel. Exiting.")
+    """Verify the installation and environment setup."""
+    if not setup_environment():
+        logging.error("Failed to set up environment")
         return False
 
-    packages = [
-        ("numpy", "2.2.3"),
-        ("decorator", "5.1.1"),
-        ("imageio", "2.31.1"),
-        ("imageio-ffmpeg", "0.4.8"),
-        ("moviepy", "1.0.3"),
-        ("SpeechRecognition", "3.10.0")
-    ]
-
-    for package, version in packages:
-        cmd = [sys.executable, "-m", "pip", "install", f"{package}=={version}"]
-        if not run_pip_command(cmd, f"Installing {package}"):
-            logging.error(f"Failed to install {package}. Please install it manually.")
-            return False
-
     try:
+        # Try importing required packages
         import numpy
         import decorator
         import imageio
         import imageio_ffmpeg
         import moviepy.editor
         import speech_recognition as sr
+        from pydub import AudioSegment
+        import langdetect
+
         logging.info("All required packages imported successfully")
         return True
     except ImportError as e:
@@ -330,7 +370,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Get directory path
-    default_dir = r"D:\transcript\Text-from-Video"
+    default_dir = r"D:VidScribe"
     while True:
         dir_path = input(f"Enter directory path (press Enter to use default: {default_dir}): ").strip()
         if not dir_path:
