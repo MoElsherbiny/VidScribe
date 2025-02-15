@@ -98,10 +98,10 @@ D:\VIDSCRIBE
 
 VidScribe will automatically:
 
-✅ Extract audio from video files
-✅ Split audio into 30-second chunks
-✅ Transcribe each chunk into English and Arabic
-✅ Generate subtitles with timestamps
+✅ Extract audio from video files\
+✅ Split audio into 30-second chunks\
+✅ Transcribe each chunk into English and Arabic\
+✅ Generate subtitles with timestamps\
 ✅ Save transcripts in the `transcripts/` folder
 
 ### 3️⃣ Output Files
@@ -204,7 +204,43 @@ pip install --upgrade -r requirements.txt
 
 ## 🤝 Contributing
 
-Contributions are welcome! If you find any issues or have ideas for improvements, feel free to submit a pull request or open an issue.
+We welcome contributions of all kinds! To contribute to VidScribe, follow these steps:
+
+### 1️⃣ Fork the Repository
+
+Click the **Fork** button at the top of the [GitHub repository](https://github.com/MoElsherbiny/VidScribe) to create your copy.
+
+### 2️⃣ Clone Your Fork
+
+```sh
+git clone https://github.com/YOUR-USERNAME/VidScribe.git
+cd VidScribe
+```
+
+### 3️⃣ Create a New Branch
+
+```sh
+git checkout -b feature-or-bugfix-name
+```
+
+### 4️⃣ Make Your Changes & Commit
+
+Modify the necessary files, then commit your changes:
+
+```sh
+git add .
+git commit -m "Describe your changes here"
+```
+
+### 5️⃣ Push Your Branch & Create a Pull Request
+
+```sh
+git push origin feature-or-bugfix-name
+```
+
+Go to GitHub and create a pull request from your branch to the `main` branch of the original repository.
+
+🚀 Thank you for contributing! Your efforts help make VidScribe better for everyone.
 
 ---
 
