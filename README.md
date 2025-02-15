@@ -213,7 +213,7 @@ Click the **Fork** button at the top of the [GitHub repository](https://github.c
 ### 2️⃣ Clone Your Fork
 
 ```sh
-git clone https://github.com/YOUR-USERNAME/VidScribe.git
+git clone https://github.com/MoElsherbiny/VidScribe
 cd VidScribe
 ```
 
