@@ -210,6 +210,8 @@ We welcome contributions of all kinds! To contribute to VidScribe, follow these 
 
 Click the **Fork** button at the top of the [GitHub repository](https://github.com/MoElsherbiny/VidScribe) to create your copy.
 
+<!--  -->
+
 ### 2️⃣ Clone Your Fork
 
 ```sh
